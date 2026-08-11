@@ -74,8 +74,6 @@ jobs:
         run: |
           docker push \
             $ECR_REGISTRY/$NGINX_REPOSITORY:$IMAGE_TAG
-
-
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
@@ -86,8 +84,10 @@ jobs:
 
       - name: Deploy application
         uses: appleboy/ssh-action@v1.0.3
+
         env:
           IMAGE_TAG: ${{ github.sha }}
+
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -101,7 +101,14 @@ jobs:
 
             cd /opt/zeda
 
-            echo "Deploying image tag: ${IMAGE_TAG:0:7}"
+            SHORT_TAG="${IMAGE_TAG:0:7}"
+
+            echo "========================================"
+            echo "Starting ZEDA deployment"
+            echo "Commit: ${SHORT_TAG}"
+            echo "========================================"
+
+            echo "Logging in to Amazon ECR..."
 
             aws ecr get-login-password \
               --region us-east-1 | \
@@ -110,61 +117,111 @@ jobs:
               --password-stdin \
               995938832906.dkr.ecr.us-east-1.amazonaws.com
 
-            export BACKEND_IMAGE=995938832906.dkr.ecr.us-east-1.amazonaws.com/swiggy-backend-v2:${IMAGE_TAG:0:7}
+            export BACKEND_IMAGE="995938832906.dkr.ecr.us-east-1.amazonaws.com/swiggy-backend-v2:${SHORT_TAG}"
 
-            export FRONTEND_IMAGE=995938832906.dkr.ecr.us-east-1.amazonaws.com/swiggy-frontend:${IMAGE_TAG:0:7}
+            export FRONTEND_IMAGE="995938832906.dkr.ecr.us-east-1.amazonaws.com/swiggy-frontend:${SHORT_TAG}"
 
-            export NGINX_IMAGE=995938832906.dkr.ecr.us-east-1.amazonaws.com/swiggy-nginx-v2:${IMAGE_TAG:0:7}
+            export NGINX_IMAGE="995938832906.dkr.ecr.us-east-1.amazonaws.com/swiggy-nginx-v2:${SHORT_TAG}"
+
+            echo "========================================"
+            echo "Images to deploy"
+            echo "========================================"
+
+            echo "Backend : $BACKEND_IMAGE"
+            echo "Frontend: $FRONTEND_IMAGE"
+            echo "Nginx   : $NGINX_IMAGE"
+
+            echo "========================================"
+            echo "Compose configuration"
+            echo "========================================"
+
+            docker-compose config | grep image
+
+            echo "========================================"
+            echo "Pulling new images"
+            echo "========================================"
 
             docker-compose pull
 
-            docker-compose up -d --remove-orphans
+            echo "========================================"
+            echo "Starting containers"
+            echo "========================================"
 
-            echo "Waiting for containers..."
+            docker-compose up -d --remove-orphans --force-recreate
+
+            echo "========================================"
+            echo "Waiting for health checks"
+            echo "========================================"
 
             sleep 20
 
             docker-compose ps
 
-            echo "Checking backend health..."
+            echo "========================================"
+            echo "Checking backend"
+            echo "========================================"
 
-            BACKEND_STATUS=$(docker inspect zeda-backend \
+            BACKEND_CONTAINER=$(docker-compose ps -q backend)
+
+            BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
               --format='{{.State.Health.Status}}')
 
-            echo "Backend: $BACKEND_STATUS"
+            echo "Backend status: $BACKEND_STATUS"
 
             if [ "$BACKEND_STATUS" != "healthy" ]; then
-              echo "Backend deployment failed"
-              docker-compose logs backend
+              echo "❌ Backend deployment failed"
+              docker-compose logs --tail=100 backend
               exit 1
             fi
 
-            echo "Checking frontend health..."
+            echo "✅ Backend healthy"
 
-            FRONTEND_STATUS=$(docker inspect zeda-frontend \
+            echo "========================================"
+            echo "Checking frontend"
+            echo "========================================"
+
+            FRONTEND_CONTAINER=$(docker-compose ps -q frontend)
+
+            FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
               --format='{{.State.Health.Status}}')
 
-            echo "Frontend: $FRONTEND_STATUS"
+            echo "Frontend status: $FRONTEND_STATUS"
 
             if [ "$FRONTEND_STATUS" != "healthy" ]; then
-              echo "Frontend deployment failed"
-              docker-compose logs frontend
+              echo "❌ Frontend deployment failed"
+              docker-compose logs --tail=100 frontend
               exit 1
             fi
 
-            echo "Checking nginx health..."
+            echo "✅ Frontend healthy"
 
-            NGINX_STATUS=$(docker inspect zeda-nginx \
+            echo "========================================"
+            echo "Checking nginx"
+            echo "========================================"
+
+            NGINX_CONTAINER=$(docker-compose ps -q nginx)
+
+            NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
               --format='{{.State.Health.Status}}')
 
-            echo "Nginx: $NGINX_STATUS"
+            echo "Nginx status: $NGINX_STATUS"
 
             if [ "$NGINX_STATUS" != "healthy" ]; then
-              echo "Nginx deployment failed"
-              docker-compose logs nginx
+              echo "❌ Nginx deployment failed"
+              docker-compose logs --tail=100 nginx
               exit 1
             fi
 
-            echo "================================"
-            echo "ZEDA deployment successful!"
-            echo "================================"
+            echo "✅ Nginx healthy"
+
+            echo "========================================"
+            echo "Testing application"
+            echo "========================================"
+
+            curl -f http://localhost/api/health
+
+            echo ""
+
+            echo "========================================"
+            echo "✅ ZEDA deployment successful!"
+            echo "========================================"
