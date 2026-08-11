@@ -1,0 +1,66 @@
+services:
+
+  backend:
+    image: ${BACKEND_IMAGE}
+    container_name: zeda-backend
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+
+    expose:
+      - "3000"
+
+    networks:
+      - zeda-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    container_name: zeda-frontend
+    restart: unless-stopped
+
+    expose:
+      - "80"
+
+    networks:
+      - zeda-network
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+
+  nginx:
+    image: ${NGINX_IMAGE}
+    container_name: zeda-nginx
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+      frontend:
+        condition: service_healthy
+
+    networks:
+      - zeda-network
+
+
+networks:
+
+  zeda-network:
+    driver: bridge
