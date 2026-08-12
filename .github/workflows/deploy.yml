@@ -142,13 +142,13 @@ jobs:
             echo "Pulling new images"
             echo "========================================"
 
-            docker-compose pull
+            docker compose pull
 
             echo "========================================"
             echo "Starting containers"
             echo "========================================"
 
-            docker-compose up -d --remove-orphans --force-recreate
+            docker compose up -d --remove-orphans --force-recreate
 
             echo "========================================"
             echo "Waiting for health checks"
@@ -156,7 +156,7 @@ jobs:
 
             sleep 20
 
-            docker-compose ps
+            docker compose ps
 
             echo "========================================"
             echo "Checking backend"
@@ -171,7 +171,7 @@ jobs:
 
             if [ "$BACKEND_STATUS" != "healthy" ]; then
               echo "❌ Backend deployment failed"
-              docker-compose logs --tail=100 backend
+              docker compose logs --tail=100 backend
               exit 1
             fi
 
