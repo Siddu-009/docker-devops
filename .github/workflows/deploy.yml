@@ -167,7 +167,6 @@ jobs:
   # ============================================================
   # JOB 2 - DEPLOY TO EC2
   # ============================================================
-
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
@@ -188,16 +187,11 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-
           envs: IMAGE_TAG
 
           script: |
 
             set -e
-
-            # ==================================================
-            # VARIABLES
-            # ==================================================
 
             SHORT_TAG="${IMAGE_TAG:0:7}"
 
@@ -209,45 +203,27 @@ jobs:
             FRONTEND_IMAGE="$ECR_REGISTRY/swiggy-frontend:$SHORT_TAG"
             NGINX_IMAGE="$ECR_REGISTRY/swiggy-nginx-v2:$SHORT_TAG"
 
-            # ==================================================
-            # START
-            # ==================================================
-
             echo "========================================"
             echo "Starting ZEDA deployment"
             echo "========================================"
 
-            echo "Commit:"
-            echo "$SHORT_TAG"
-
-            echo ""
-            echo "Backend:"
-            echo "$BACKEND_IMAGE"
-
-            echo ""
-            echo "Frontend:"
-            echo "$FRONTEND_IMAGE"
-
-            echo ""
-            echo "Nginx:"
-            echo "$NGINX_IMAGE"
-
-            echo "========================================"
-
-            # ==================================================
-            # APPLICATION DIRECTORY
-            # ==================================================
+            echo "Commit: $SHORT_TAG"
+            echo "Backend: $BACKEND_IMAGE"
+            echo "Frontend: $FRONTEND_IMAGE"
+            echo "Nginx: $NGINX_IMAGE"
 
             cd /opt/zeda
 
-            echo "Current directory:"
-            pwd
+            echo "========================================"
+            echo "Docker versions"
+            echo "========================================"
 
-            # ==================================================
-            # LOGIN TO ECR
-            # ==================================================
+            docker --version
+            docker compose version
 
-            echo "Logging into Amazon ECR..."
+            echo "========================================"
+            echo "Logging into ECR"
+            echo "========================================"
 
             aws ecr get-login-password \
               --region "$AWS_REGION" | \
@@ -257,9 +233,9 @@ jobs:
 
             echo "ECR login successful"
 
-            # ==================================================
-            # CREATE DEPLOYMENT ENVIRONMENT
-            # ==================================================
+            echo "========================================"
+            echo "Creating deployment environment"
+            echo "========================================"
 
             cat > .env <<EOF
             BACKEND_IMAGE=$BACKEND_IMAGE
@@ -267,73 +243,41 @@ jobs:
             NGINX_IMAGE=$NGINX_IMAGE
             EOF
 
-            echo "Deployment .env created"
-
             cat .env
 
-            # ==================================================
-            # SHOW COMPOSE CONFIGURATION
-            # ==================================================
-
             echo "========================================"
-            echo "Docker Compose configuration"
+            echo "Compose configuration"
             echo "========================================"
 
-            docker-compose config | grep image
-
-            # ==================================================
-            # PULL NEW IMAGES
-            # ==================================================
+            docker compose config | grep image
 
             echo "========================================"
-            echo "Pulling new images"
+            echo "Pulling new ECR images"
             echo "========================================"
 
-            docker-compose pull
-
-            # ==================================================
-            # DEPLOY
-            # ==================================================
+            docker compose pull
 
             echo "========================================"
             echo "Starting containers"
             echo "========================================"
 
-            docker-compose up -d \
+            docker compose up -d \
               --remove-orphans \
               --force-recreate
 
-            # ==================================================
-            # WAIT
-            # ==================================================
-
             echo "========================================"
-            echo "Waiting for health checks..."
+            echo "Waiting for health checks"
             echo "========================================"
 
             sleep 20
 
-            # ==================================================
-            # SHOW CONTAINERS
-            # ==================================================
-
-            docker-compose ps
-
-            # ==================================================
-            # BACKEND HEALTH
-            # ==================================================
+            docker compose ps
 
             echo "========================================"
-            echo "Checking backend health"
+            echo "Checking backend"
             echo "========================================"
 
-            BACKEND_CONTAINER=$(docker-compose ps -q backend)
-
-            if [ -z "$BACKEND_CONTAINER" ]; then
-              echo "Backend container not found"
-              docker-compose logs --tail=100 backend
-              exit 1
-            fi
+            BACKEND_CONTAINER=$(docker compose ps -q backend)
 
             BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
               --format='{{.State.Health.Status}}')
@@ -342,29 +286,17 @@ jobs:
 
             if [ "$BACKEND_STATUS" != "healthy" ]; then
               echo "Backend deployment failed"
-
-              docker-compose logs --tail=100 backend
-
+              docker compose logs --tail=100 backend
               exit 1
             fi
 
             echo "Backend healthy"
 
-            # ==================================================
-            # FRONTEND HEALTH
-            # ==================================================
-
             echo "========================================"
-            echo "Checking frontend health"
+            echo "Checking frontend"
             echo "========================================"
 
-            FRONTEND_CONTAINER=$(docker-compose ps -q frontend)
-
-            if [ -z "$FRONTEND_CONTAINER" ]; then
-              echo "Frontend container not found"
-              docker-compose logs --tail=100 frontend
-              exit 1
-            fi
+            FRONTEND_CONTAINER=$(docker compose ps -q frontend)
 
             FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
               --format='{{.State.Health.Status}}')
@@ -373,29 +305,17 @@ jobs:
 
             if [ "$FRONTEND_STATUS" != "healthy" ]; then
               echo "Frontend deployment failed"
-
-              docker-compose logs --tail=100 frontend
-
+              docker compose logs --tail=100 frontend
               exit 1
             fi
 
             echo "Frontend healthy"
 
-            # ==================================================
-            # NGINX HEALTH
-            # ==================================================
-
             echo "========================================"
-            echo "Checking nginx health"
+            echo "Checking nginx"
             echo "========================================"
 
-            NGINX_CONTAINER=$(docker-compose ps -q nginx)
-
-            if [ -z "$NGINX_CONTAINER" ]; then
-              echo "Nginx container not found"
-              docker-compose logs --tail=100 nginx
-              exit 1
-            fi
+            NGINX_CONTAINER=$(docker compose ps -q nginx)
 
             NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
               --format='{{.State.Health.Status}}')
@@ -404,50 +324,22 @@ jobs:
 
             if [ "$NGINX_STATUS" != "healthy" ]; then
               echo "Nginx deployment failed"
-
-              docker-compose logs --tail=100 nginx
-
+              docker compose logs --tail=100 nginx
               exit 1
             fi
 
             echo "Nginx healthy"
 
-            # ==================================================
-            # APPLICATION TEST
-            # ==================================================
-
             echo "========================================"
             echo "Testing application"
             echo "========================================"
 
-            echo "Testing backend through nginx..."
-
-            curl -f \
-              http://localhost/api/health
+            curl -f http://localhost/api/health
 
             echo ""
 
-            echo "Application test successful"
-
-            # ==================================================
-            # FINAL STATUS
-            # ==================================================
-
-            echo ""
             echo "========================================"
             echo "ZEDA DEPLOYMENT SUCCESSFUL"
             echo "========================================"
 
-            echo "Version:"
-            echo "$SHORT_TAG"
-
-            echo "Backend:"
-            echo "$BACKEND_IMAGE"
-
-            echo "Frontend:"
-            echo "$FRONTEND_IMAGE"
-
-            echo "Nginx:"
-            echo "$NGINX_IMAGE"
-
-            echo "========================================"
+            echo "Version: $SHORT_TAG"
