@@ -30,6 +30,10 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # CHECKOUT
+      # --------------------------------------------------------
+
       - name: Checkout source code
         uses: actions/checkout@v4
 
@@ -149,6 +153,7 @@ jobs:
     steps:
 
       - name: Deploy application to EC2
+
         uses: appleboy/ssh-action@v1.0.3
 
         env:
@@ -177,7 +182,7 @@ jobs:
             cd /opt/zeda
 
             # --------------------------------------------------
-            # VERIFY IMAGE TAG
+            # IMAGE TAG
             # --------------------------------------------------
 
             if [ -z "$IMAGE_TAG" ]; then
@@ -231,7 +236,7 @@ jobs:
             echo "Compose configuration"
             echo "========================================"
 
-            docker-compose config | grep image
+            docker compose config | grep image
 
             # --------------------------------------------------
             # PULL NEW IMAGES
@@ -241,222 +246,156 @@ jobs:
             echo "Pulling images from ECR"
             echo "========================================"
 
-            docker-compose pull
+            docker compose pull
 
             # --------------------------------------------------
             # RECREATE APPLICATION
             # --------------------------------------------------
 
             echo "========================================"
-            echo "Starting containers"
+            echo "Stopping old containers"
             echo "========================================"
 
-            docker-compose up -d \
-              --remove-orphans \
-              --force-recreate
+            docker compose down --remove-orphans
+
+            echo "========================================"
+            echo "Starting new containers"
+            echo "========================================"
+
+            docker compose up -d --remove-orphans --force-recreate
 
             # --------------------------------------------------
-            # WAIT
+            # WAIT FOR HEALTH
             # --------------------------------------------------
 
             echo "========================================"
-            echo "========================================"
-<<<<<<< HEAD
             echo "Waiting for containers to become healthy"
             echo "========================================"
-            
+
             MAX_WAIT=120
             WAITED=0
-            
+
             while true; do
-            
-                BACKEND_CONTAINER=$(docker compose ps -q backend)
-                FRONTEND_CONTAINER=$(docker compose ps -q frontend)
-                NGINX_CONTAINER=$(docker compose ps -q nginx)
-            
-                BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
-                    --format='{{.State.Health.Status}}')
-            
-                FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
-                    --format='{{.State.Health.Status}}')
-            
-                NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
-                    --format='{{.State.Health.Status}}')
-            
-                echo "Backend : $BACKEND_STATUS"
-                echo "Frontend: $FRONTEND_STATUS"
-                echo "Nginx   : $NGINX_STATUS"
-                echo "Waited  : ${WAITED}s"
-            
-                if [ "$BACKEND_STATUS" = "unhealthy" ]; then
-                    echo "❌ Backend became unhealthy"
-                    docker compose logs --tail=100 backend
-                    exit 1
-                fi
-            
-                if [ "$FRONTEND_STATUS" = "unhealthy" ]; then
-                    echo "❌ Frontend became unhealthy"
-                    docker compose logs --tail=100 frontend
-                    exit 1
-                fi
-            
-                if [ "$NGINX_STATUS" = "unhealthy" ]; then
-                    echo "❌ Nginx became unhealthy"
-                    docker compose logs --tail=100 nginx
-                    exit 1
-                fi
-            
-                if [ "$BACKEND_STATUS" = "healthy" ] &&
-                   [ "$FRONTEND_STATUS" = "healthy" ] &&
-                   [ "$NGINX_STATUS" = "healthy" ]; then
-            
-                    echo "========================================"
-                    echo "✅ All containers are healthy"
-                    echo "========================================"
-            
-                    break
-                fi
-            
-                if [ "$WAITED" -ge "$MAX_WAIT" ]; then
-            
-                    echo "========================================"
-                    echo "❌ Health check timeout"
-                    echo "========================================"
-            
-                    docker compose ps
-            
-                    echo "Backend logs:"
-                    docker compose logs --tail=100 backend
-            
-                    echo "Frontend logs:"
-                    docker compose logs --tail=100 frontend
-            
-                    echo "Nginx logs:"
-                    docker compose logs --tail=100 nginx
-            
-                    exit 1
-                fi
-            
-                sleep 5
-                WAITED=$((WAITED + 5))
-            
+
+              BACKEND_CONTAINER=$(docker compose ps -q backend)
+              FRONTEND_CONTAINER=$(docker compose ps -q frontend)
+              NGINX_CONTAINER=$(docker compose ps -q nginx)
+
+              if [ -z "$BACKEND_CONTAINER" ]; then
+                echo "ERROR: Backend container not found"
+                docker compose logs --tail=100 backend
+                exit 1
+              fi
+
+              if [ -z "$FRONTEND_CONTAINER" ]; then
+                echo "ERROR: Frontend container not found"
+                docker compose logs --tail=100 frontend
+                exit 1
+              fi
+
+              if [ -z "$NGINX_CONTAINER" ]; then
+                echo "ERROR: Nginx container not found"
+                docker compose logs --tail=100 nginx
+                exit 1
+              fi
+
+              BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
+                --format='{{.State.Health.Status}}')
+
+              FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
+                --format='{{.State.Health.Status}}')
+
+              NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
+                --format='{{.State.Health.Status}}')
+
+              echo "----------------------------------------"
+              echo "Backend : $BACKEND_STATUS"
+              echo "Frontend: $FRONTEND_STATUS"
+              echo "Nginx   : $NGINX_STATUS"
+              echo "Waited  : ${WAITED}s"
+              echo "----------------------------------------"
+
+              if [ "$BACKEND_STATUS" = "unhealthy" ]; then
+                echo "ERROR: Backend became unhealthy"
+                docker compose logs --tail=100 backend
+                exit 1
+              fi
+
+              if [ "$FRONTEND_STATUS" = "unhealthy" ]; then
+                echo "ERROR: Frontend became unhealthy"
+                docker compose logs --tail=100 frontend
+                exit 1
+              fi
+
+              if [ "$NGINX_STATUS" = "unhealthy" ]; then
+                echo "ERROR: Nginx became unhealthy"
+                docker compose logs --tail=100 nginx
+                exit 1
+              fi
+
+              if [ "$BACKEND_STATUS" = "healthy" ] && \
+                 [ "$FRONTEND_STATUS" = "healthy" ] && \
+                 [ "$NGINX_STATUS" = "healthy" ]; then
+
+                echo "========================================"
+                echo "ALL CONTAINERS ARE HEALTHY"
+                echo "========================================"
+
+                break
+              fi
+
+              if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+
+                echo "========================================"
+                echo "HEALTH CHECK TIMEOUT"
+                echo "========================================"
+
+                docker compose ps
+
+                echo "Backend logs:"
+                docker compose logs --tail=100 backend
+
+                echo "Frontend logs:"
+                docker compose logs --tail=100 frontend
+
+                echo "Nginx logs:"
+                docker compose logs --tail=100 nginx
+
+                exit 1
+              fi
+
+              sleep 5
+
+              WAITED=$((WAITED + 5))
+
             done
-=======
-
-            sleep 20
-
-            docker-compose ps
-
-            # --------------------------------------------------
-            # BACKEND
-            # --------------------------------------------------
-
-            echo "========================================"
-            echo "Checking backend"
-            echo "========================================"
-
-            BACKEND_CONTAINER=$(docker-compose ps -q backend)
-
-            if [ -z "$BACKEND_CONTAINER" ]; then
-              echo "ERROR: Backend container not found"
-              docker-compose logs --tail=100 backend
-              exit 1
-            fi
-
-            BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
-              --format='{{.State.Health.Status}}')
-
-            echo "Backend status: $BACKEND_STATUS"
-
-            if [ "$BACKEND_STATUS" != "healthy" ]; then
-              echo "ERROR: Backend deployment failed"
-              docker-compose logs --tail=100 backend
-              exit 1
-            fi
-
-            echo "Backend healthy"
-
-            # --------------------------------------------------
-            # FRONTEND
-            # --------------------------------------------------
-
-            echo "========================================"
-            echo "Checking frontend"
-            echo "========================================"
-
-            FRONTEND_CONTAINER=$(docker-compose ps -q frontend)
-
-            if [ -z "$FRONTEND_CONTAINER" ]; then
-              echo "ERROR: Frontend container not found"
-              docker-compose logs --tail=100 frontend
-              exit 1
-            fi
-
-            FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
-              --format='{{.State.Health.Status}}')
-
-            echo "Frontend status: $FRONTEND_STATUS"
-
-            if [ "$FRONTEND_STATUS" != "healthy" ]; then
-              echo "ERROR: Frontend deployment failed"
-              docker-compose logs --tail=100 frontend
-              exit 1
-            fi
-
-            echo "Frontend healthy"
-
-            # --------------------------------------------------
-            # NGINX
-            # --------------------------------------------------
-
-            echo "========================================"
-            echo "Checking nginx"
-            echo "========================================"
-
-            NGINX_CONTAINER=$(docker-compose ps -q nginx)
-
-            if [ -z "$NGINX_CONTAINER" ]; then
-              echo "ERROR: Nginx container not found"
-              docker-compose logs --tail=100 nginx
-              exit 1
-            fi
-
-            NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
-              --format='{{.State.Health.Status}}')
-
-            echo "Nginx status: $NGINX_STATUS"
-
-            if [ "$NGINX_STATUS" != "healthy" ]; then
-              echo "ERROR: Nginx deployment failed"
-              docker-compose logs --tail=100 nginx
-              exit 1
-            fi
-
-            echo "Nginx healthy"
 
             # --------------------------------------------------
             # APPLICATION TEST
             # --------------------------------------------------
 
->>>>>>> 2242e1e (commit-4)
             echo "========================================"
-            echo "Testing application"
+            echo "Testing backend API"
             echo "========================================"
 
             curl -f http://localhost/api/health
 
             echo ""
 
+            echo "========================================"
+            echo "Testing frontend"
+            echo "========================================"
+
             curl -f http://localhost/
 
             echo ""
 
             # --------------------------------------------------
-            # SUCCESS
+            # FINAL STATUS
             # --------------------------------------------------
 
             echo "========================================"
-            echo "ZEDA deployment successful!"
+            echo "ZEDA DEPLOYMENT SUCCESSFUL!"
             echo "========================================"
 
             echo "Backend : $BACKEND_IMAGE"
