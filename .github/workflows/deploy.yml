@@ -1,4 +1,3 @@
-
 name: ZEDA Docker CI/CD
 
 on:
@@ -266,70 +265,86 @@ jobs:
               --force-recreate
 
             echo "========================================"
-            echo "Waiting for health checks"
             echo "========================================"
-
-            sleep 20
-
-            docker compose ps
-
+            echo "Waiting for containers to become healthy"
             echo "========================================"
-            echo "Checking backend"
-            echo "========================================"
-
-            BACKEND_CONTAINER=$(docker compose ps -q backend)
-
-            BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
-              --format='{{.State.Health.Status}}')
-
-            echo "Backend status: $BACKEND_STATUS"
-
-            if [ "$BACKEND_STATUS" != "healthy" ]; then
-              echo "Backend deployment failed"
-              docker compose logs --tail=100 backend
-              exit 1
-            fi
-
-            echo "Backend healthy"
-
-            echo "========================================"
-            echo "Checking frontend"
-            echo "========================================"
-
-            FRONTEND_CONTAINER=$(docker compose ps -q frontend)
-
-            FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
-              --format='{{.State.Health.Status}}')
-
-            echo "Frontend status: $FRONTEND_STATUS"
-
-            if [ "$FRONTEND_STATUS" != "healthy" ]; then
-              echo "Frontend deployment failed"
-              docker compose logs --tail=100 frontend
-              exit 1
-            fi
-
-            echo "Frontend healthy"
-
-            echo "========================================"
-            echo "Checking nginx"
-            echo "========================================"
-
-            NGINX_CONTAINER=$(docker compose ps -q nginx)
-
-            NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
-              --format='{{.State.Health.Status}}')
-
-            echo "Nginx status: $NGINX_STATUS"
-
-            if [ "$NGINX_STATUS" != "healthy" ]; then
-              echo "Nginx deployment failed"
-              docker compose logs --tail=100 nginx
-              exit 1
-            fi
-
-            echo "Nginx healthy"
-
+            
+            MAX_WAIT=120
+            WAITED=0
+            
+            while true; do
+            
+                BACKEND_CONTAINER=$(docker compose ps -q backend)
+                FRONTEND_CONTAINER=$(docker compose ps -q frontend)
+                NGINX_CONTAINER=$(docker compose ps -q nginx)
+            
+                BACKEND_STATUS=$(docker inspect "$BACKEND_CONTAINER" \
+                    --format='{{.State.Health.Status}}')
+            
+                FRONTEND_STATUS=$(docker inspect "$FRONTEND_CONTAINER" \
+                    --format='{{.State.Health.Status}}')
+            
+                NGINX_STATUS=$(docker inspect "$NGINX_CONTAINER" \
+                    --format='{{.State.Health.Status}}')
+            
+                echo "Backend : $BACKEND_STATUS"
+                echo "Frontend: $FRONTEND_STATUS"
+                echo "Nginx   : $NGINX_STATUS"
+                echo "Waited  : ${WAITED}s"
+            
+                if [ "$BACKEND_STATUS" = "unhealthy" ]; then
+                    echo "❌ Backend became unhealthy"
+                    docker compose logs --tail=100 backend
+                    exit 1
+                fi
+            
+                if [ "$FRONTEND_STATUS" = "unhealthy" ]; then
+                    echo "❌ Frontend became unhealthy"
+                    docker compose logs --tail=100 frontend
+                    exit 1
+                fi
+            
+                if [ "$NGINX_STATUS" = "unhealthy" ]; then
+                    echo "❌ Nginx became unhealthy"
+                    docker compose logs --tail=100 nginx
+                    exit 1
+                fi
+            
+                if [ "$BACKEND_STATUS" = "healthy" ] &&
+                   [ "$FRONTEND_STATUS" = "healthy" ] &&
+                   [ "$NGINX_STATUS" = "healthy" ]; then
+            
+                    echo "========================================"
+                    echo "✅ All containers are healthy"
+                    echo "========================================"
+            
+                    break
+                fi
+            
+                if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+            
+                    echo "========================================"
+                    echo "❌ Health check timeout"
+                    echo "========================================"
+            
+                    docker compose ps
+            
+                    echo "Backend logs:"
+                    docker compose logs --tail=100 backend
+            
+                    echo "Frontend logs:"
+                    docker compose logs --tail=100 frontend
+            
+                    echo "Nginx logs:"
+                    docker compose logs --tail=100 nginx
+            
+                    exit 1
+                fi
+            
+                sleep 5
+                WAITED=$((WAITED + 5))
+            
+            done
             echo "========================================"
             echo "Testing application"
             echo "========================================"
